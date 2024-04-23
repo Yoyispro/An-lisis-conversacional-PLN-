@@ -1,0 +1,156 @@
+import pandas as pd
+file_path = '/content/conversaciones.xlsx'
+conversaciones_df = pd.read_excel(file_path)
+conversaciones_df.head()
+
+import re
+
+#Función pa extraer y estructurar correcrtamente  los mensajes
+def extraer_mensajes(dataframe):
+    structured_data = []
+    for index, row in dataframe.iterrows():
+    
+        mensajes = re.split(r'\n', row['Mensaje'])
+        for mensaje in mensajes:
+    
+            split_message = re.split(r':\s+', mensaje, 1)
+            if len(split_message) == 2:
+                nombre, texto = split_message
+                structured_data.append({'ID conversacion': row['ID speak'], 'Nombre': nombre.strip(), 'Mensaje': texto.strip()})
+    return pd.DataFrame(structured_data)
+#Pues ya aqui hacemos isao de la funcion
+conversaciones_estructuradas_df = extraer_mensajes(conversaciones_df)
+conversaciones_estructuradas_df.head()
+
+
+
+# Función para limpiar el texto de los mensajes
+def limpiar_texto(texto):
+    # Remover caracteres especiales manteniendo letras, números, y puntuación básica
+    texto_limpio = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ.,!?¿¡\s]', '', texto)
+    return texto_limpio.strip()
+
+# Aplicar limpieza de texto
+conversaciones_estructuradas_df['Mensaje'] = conversaciones_estructuradas_df['Mensaje'].apply(limpiar_texto)
+conversaciones_estructuradas_df.head()
+
+
+
+
+import numpy as np
+
+# Función para calcular el promedio de sentencias en un mensaje
+def promedio_sentencias(texto):
+    sentencias = re.split(r'[.!?]+', texto)
+    if not sentencias[-1]:
+        sentencias = sentencias[:-1]  # Eliminar última entrada vacía si existe
+    if sentencias:
+        return np.mean([len(s.split()) for s in sentencias])
+    else:
+        return 0
+
+# Función para calcular tasa de palabras únicas
+def tasa_palabras_unicas(texto):
+    palabras = texto.split()
+    if palabras:
+        return len(set(palabras)) / len(palabras)
+    else:
+        return 0
+
+# Extraer características básicas
+conversaciones_estructuradas_df['num_caracteres'] = conversaciones_estructuradas_df['Mensaje'].apply(len)
+conversaciones_estructuradas_df['num_palabras'] = conversaciones_estructuradas_df['Mensaje'].apply(lambda x: len(x.split()))
+conversaciones_estructuradas_df['prom_sentencias'] = conversaciones_estructuradas_df['Mensaje'].apply(promedio_sentencias)
+conversaciones_estructuradas_df['tasa_palabras_unicas'] = conversaciones_estructuradas_df['Mensaje'].apply(tasa_palabras_unicas)
+
+# Verificar las características extraídas
+conversaciones_estructuradas_df.head()
+
+
+
+# Lista de palabras comúnmente informales (ejemplo simplificado)
+palabras_informales = {'hola', 'que', 'xd', 'uwu', 'bro', 'wey', 'nigga', 'lol', 'bff', 'btw', 'thx', 'pls'}
+
+# Función para calcular la proporción de signos de puntuación
+def proporcion_puntuacion(texto):
+    puntuacion = sum([1 for char in texto if char in '.,!?¿¡'])
+    return puntuacion / len(texto) if texto else 0
+
+# Función para calcular la proporción de letras mayúsculas
+def proporcion_mayusculas(texto):
+    mayusculas = sum([1 for char in texto if char.isupper()])
+    return mayusculas / len(texto) if texto else 0
+
+# Función para detectar la presencia de emojis (ejemplo simplificado, solo incluyendo unos pocos)
+def presencia_emojis(texto):
+    # Patrón de ejemplo para detectar caras sonrientes y otros símbolos comunes en textos informales
+    emojis_patron = re.compile(r'[:;=][\-]?[)DPOp]')
+    return 1 if emojis_patron.search(texto) else 0
+
+# Función para calcular la proporción de palabras informales
+def proporcion_palabras_informales(texto):
+    palabras = texto.lower().split()
+    informales = sum([1 for palabra in palabras if palabra in palabras_informales])
+    return informales / len(palabras) if palabras else 0
+
+# Función para calcular la longitud promedio de las palabras
+def longitud_promedio_palabras(texto):
+    palabras = texto.split()
+    if palabras:
+        return np.mean([len(palabra) for palabra in palabras])
+    else:
+        return 0
+
+# Extraer características adicionales
+conversaciones_estructuradas_df['prop_puntuacion'] = conversaciones_estructuradas_df['Mensaje'].apply(proporcion_puntuacion)
+conversaciones_estructuradas_df['prop_mayusculas'] = conversaciones_estructuradas_df['Mensaje'].apply(proporcion_mayusculas)
+conversaciones_estructuradas_df['presencia_emojis'] = conversaciones_estructuradas_df['Mensaje'].apply(presencia_emojis)
+conversaciones_estructuradas_df['prop_palabras_informales'] = conversaciones_estructuradas_df['Mensaje'].apply(proporcion_palabras_informales)
+conversaciones_estructuradas_df['long_prom_palabras'] = conversaciones_estructuradas_df['Mensaje'].apply(longitud_promedio_palabras)
+
+# Mostrar las características adicionales
+conversaciones_estructuradas_df.head()
+
+
+
+# Definir la variable target basada en la proporción de palabras informales y la presencia de emojis
+def definir_clase_informal(row):
+    return 1 if (row['prop_palabras_informales'] > 0.05 or row['presencia_emojis'] == 1) else 0
+
+# Aplicar la función para crear la columna target
+conversaciones_estructuradas_df['Clase'] = conversaciones_estructuradas_df.apply(definir_clase_informal, axis=1)
+
+# Preparar el conjunto de datos final para el modelo de clasificación
+features_columns = ['num_caracteres', 'num_palabras', 'prom_sentencias', 'tasa_palabras_unicas',
+                    'prop_puntuacion', 'prop_mayusculas', 'presencia_emojis', 'prop_palabras_informales',
+                    'long_prom_palabras']
+target_column = 'Clase'
+
+# Dataframe final para modelado
+dataset_modelo = conversaciones_estructuradas_df[features_columns + [target_column]]
+dataset_modelo.head()
+
+
+
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score, classification_report
+
+# Dividir los datos en conjuntos de entrenamiento y validación
+X = dataset_modelo[features_columns]
+y = dataset_modelo[target_column]
+
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.20, random_state=42)
+
+# Crear y entrenar el modelo de Árbol de Decisión
+decision_tree_model = DecisionTreeClassifier(random_state=42)
+decision_tree_model.fit(X_train, y_train)
+
+# Predecir el conjunto de validación
+y_pred = decision_tree_model.predict(X_val)
+
+# Calcular la precisión del modelo
+accuracy = accuracy_score(y_val, y_pred)
+report = classification_report(y_val, y_pred)
+
+accuracy, report
